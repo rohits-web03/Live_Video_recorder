@@ -1,156 +1,101 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 const CameraRecorder = () => {
-  const videoRef = useRef();
-  const canvasRef = useRef();
-  const [capturedFrames, setCapturedFrames] = useState([]);
+  const [stream, setStream] = useState(null);
   const [recording, setRecording] = useState(false);
-  //const [videoDuration, setVideoDuration] = useState(0);
+  const [apiResponse, setApiResponse] = useState('');
+  const videoRef = useRef();
+  const isRecording = useRef(false);
+  const synth = useRef(window.speechSynthesis);
+
+  const startRecording = async () => {
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setStream(newStream);
+      videoRef.current.srcObject = newStream;
+      await videoRef.current.play();
+      setRecording(true);
+      isRecording.current = true;
+      captureAndSendFrame();
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const speakApiResponse = (text, rate) => {
+    return new Promise((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = rate; // Set the desired speech rate
+      utterance.onend = resolve;
+      synth.current.speak(utterance);
+    });
+  };
+
+  const resetPlayer = () => {
+    setApiResponse('');
+    videoRef.current.srcObject = null;
+  };
+
+  const stopRecording = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+      setRecording(false);
+      setApiResponse('');
+      videoRef.current.srcObject = null;
+      isRecording.current = false;
+    }
+  };
+
+  const captureAndSendFrame = async () => {
+    try {
+      if (!videoRef.current || !isRecording.current) return;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      canvas.getContext('2d').drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const frameDataURL = canvas.toDataURL('image/jpeg');
+
+      const base64Frame = frameDataURL.split(',')[1];
+
+      const response = await fetch('http://127.0.0.1:8000/detect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imagedata: base64Frame }),
+      });
+
+      const data = await response.json();
+      setApiResponse(JSON.stringify(data));
+      const text = JSON.stringify(data);
+
+      console.log(text);
+      await speakApiResponse(text, 1.5);
+      if (isRecording.current) {
+        captureAndSendFrame();
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
 
   useEffect(() => {
-    let timeoutId; // Store the timeout ID
-
-    const startRecording = async () => {
-        try{
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      videoRef.current.srcObject = stream;
-
-      videoRef.current.addEventListener('loadedmetadata', () => {
-        videoRef.current.play();
-        //setVideoDuration(videoRef.current.duration);
-        const captureFrame = () => {
-          if (!recording) return;
-
-          const video = videoRef.current;
-          const canvas = canvasRef.current;
-          const ctx = canvas.getContext('2d');
-
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-          const frameImageData = canvas.toDataURL('image/jpeg');
-          setCapturedFrames(prevFrames => [...prevFrames, frameImageData]);
-          //yoloApiData();
-
-          if (Math.floor(video.currentTime) < Math.floor(video.duration)) {
-            timeoutId = setTimeout(captureFrame, 1000); // Capture frame per second
-          } else {
-            setRecording(false);
-          }
-        };
-
-        if (recording) {
-          captureFrame();
-        }
-      });
-    }catch(err){
-        console.log(`The error:${err}`);
-    }
-    };
-
-    if (recording) {
-      startRecording();
-      yoloApiData();
-    } else {
-      clearTimeout(timeoutId); // Clear timeout when recording is stopped
-    }
-
     return () => {
-      clearTimeout(timeoutId); // Clear any remaining timeout when component unmounts
+      stopRecording();
     };
-  }, [recording]);
-  let apiRes;
-
-  async function yoloApiData(array){
-    try{
-      for(const element of array){
-      const res=await fetch("/detect",{
-        credentials: "include",
-        method: "POST",
-        headers: {
-          "Content-Type":"application/json"
-        },
-        body:JSON.stringify(element.split(",")[1])
-      });
-
-      if (!res.ok) {
-        throw new Error("Request failed");
-    }
-      apiRes=await res.json();
-      if(res.status===422 || !apiRes || res.status(500)){
-        console.log("Validation Error");
-      } else if(res.status===200){
-        console.log("Data successfully fetched");
-        console.log(apiRes);
-      }
-    }
-    } catch(err){
-      console.error('Error fetching data:', err);
-    }
-  }
-  const handleStartRecording = () => {
-    setCapturedFrames([]);
-    setRecording(true);
-  };
-
-  const handleStopRecording = () => {
-    setRecording(false);
-    // setVideoDuration(video.duration);
-    if (videoRef.current) {
-      const stream = videoRef.current.srcObject;
-      if (stream) {
-        const tracks = stream.getTracks();
-        tracks.forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
-    }
-
-  };
-
-  const handleReset = () => {
-    setCapturedFrames([]);
-    //setVideoDuration(0);
-    setRecording(false);
-    if (videoRef.current) {
-      const stream = videoRef.current.srcObject;
-      if (stream) {
-        const tracks = stream.getTracks();
-        tracks.forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
-    }
-  };
-  console.log(apiRes);
-  console.log(capturedFrames);
+  }, []);
 
   return (
     <div>
-      <video ref={videoRef} style={{ display: 'block', marginBottom: '10px' }}></video>
-      <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
-
-      <div>
-        {!recording ? (
-          <button onClick={handleStartRecording}>Start Recording</button>
-        ) : (
-          <div>
-            <p>Recording...</p>
-            <button onClick={handleStopRecording}>Stop Recording</button>
-          </div>
-        )}
-        <button onClick={handleReset}>Reset</button>
+      <button onClick={startRecording}>Start Recording</button>
+      <button onClick={stopRecording}>Stop Recording</button>
+      <button onClick={resetPlayer}>Reset</button>
+      <div id="videoContainer">
+        <video ref={videoRef} style={{ display: 'block', marginBottom: '10px' }} />
       </div>
-
-      <div>
-      {/* <p>Video Duration: {videoDuration.toFixed(2)} seconds</p> */}
-        {capturedFrames.map((frame, index) => (
-          <img key={index} src={frame} alt={`Frame ${index}`} />
-        ))}
-        {/* {apiRes.map((element, index) => (
-          <p key={index}>{element}</p>
-        ))} */}
-      </div>
+      <div>{apiResponse && <p>API Response: {apiResponse}</p>}</div>
     </div>
   );
 };
