@@ -50,7 +50,9 @@ npm run serve: Serves the production build using a local HTTP server for testing
 #### Project Structure
 
 src: Contains the source code of the React application.
+
 public: Contains static assets that will be served as-is.
+
 dist: Output directory for the production build.
 
 
